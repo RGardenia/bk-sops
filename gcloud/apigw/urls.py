@@ -13,6 +13,7 @@ specific language governing permissions and limitations under the License.
 
 from django.conf.urls import url
 
+from gcloud.apigw.views.generate_process_with_agent import generate_process_with_agent
 from gcloud.apigw.views.apply_webhook_configs import apply_webhook_configs
 from gcloud.apigw.views.claim_functionalization_task import claim_functionalization_task
 from gcloud.apigw.views.copy_template_across_project import copy_template_across_project
@@ -141,4 +142,7 @@ urlpatterns = [
     url(r"^get_task_effective_time/(?P<task_id>\d+)/(?P<bk_biz_id>\d+)/$", get_task_effective_time),
     url(r"^get_task_node_log/$", get_task_node_log),
     url(r"^get_task_plugin_log/$", get_task_plugin_log),
+
+    # convert simple flow to pipeline tree
+    url(r"^generate_process_with_agent/$", generate_process_with_agent),
 ]

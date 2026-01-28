@@ -173,6 +173,7 @@ const template = {
     namespaced: true,
     state: {
         name: '',
+        isAiGenerated: false, // 标记是否是 AI 生成的流程
         activities: {},
         end_event: {},
         flows: {},
@@ -258,7 +259,15 @@ const template = {
                 })
             }
         },
+        // 设置 AI 生成标志
+        setAiGenerated (state, value) {
+            state.isAiGenerated = value
+        },
         setPipelineTree (state, data) {
+            // 如果 data 中包含 name 字段，则设置模板名称
+            if (data.name) {
+                state.name = data.name
+            }
             const pipelineTreeOrder = [
                 'activities', 'constants', 'end_event', 'flows', 'gateways',
                 'line', 'location', 'outputs', 'start_event'
@@ -359,6 +368,7 @@ const template = {
             const start_event = generateStartNode(location[0], line[0])
             const end_event = generateEndNode(location[2], line[1])
             state.name = ''
+            state.isAiGenerated = false
             state.activities = activities
             state.end_event = end_event
             state.flows = flow
@@ -386,6 +396,7 @@ const template = {
         // 重置模板数据
         resetTemplateData (state) {
             state.name = ''
+            state.isAiGenerated = false
             state.activities = {}
             state.end_event = {}
             state.flows = {}

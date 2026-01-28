@@ -29,6 +29,15 @@
                             @click="checkCreatePermission">
                             {{$t('新建')}}
                         </bk-button>
+                        <bk-button
+                            v-cursor="{ active: !hasPermission(['flow_create'], authActions) }"
+                            :class="['ai-generate-btn', {
+                                'btn-permission-disable': !hasPermission(['flow_create'], authActions)
+                            }]"
+                            data-test-id="process_form_aiGenerate"
+                            @click="onAiGenerateClick">
+                            {{$t('AI 生成')}}
+                        </bk-button>
                         <bk-dropdown-menu>
                             <div class="import-tpl-btn" slot="dropdown-trigger">
                                 <span>{{ $t('导入') }}</span>
@@ -417,6 +426,33 @@
             @confirm="handleTplBatchUpdateConfirm"
             @close="closeBatchUpdateDialogShow">
         </TemplateUpdateDialog>
+        <!-- AI 生成流程弹窗 -->
+        <bk-dialog
+            width="700"
+            ext-cls="ai-generate-dialog"
+            header-position="left"
+            render-directive="if"
+            :mask-close="false"
+            :auto-close="false"
+            :title="$t('AI 生成流程')"
+            :loading="aiGenerateLoading"
+            :value="isAiGenerateDialogShow"
+            :cancel-text="$t('取消')"
+            @confirm="onAiGenerateConfirm"
+            @cancel="isAiGenerateDialogShow = false">
+            <div class="ai-generate-content" v-bkloading="{ isLoading: aiGenerateLoading, title: $t('AI 正在生成流程，请稍候...') }">
+                <bk-form ref="aiGenerateForm" :model="aiGenerateData" :rules="aiGenerateRules">
+                    <bk-form-item property="prompt" :label="$t('流程描述')" :required="true">
+                        <bk-input
+                            type="textarea"
+                            :rows="8"
+                            :placeholder="aiGeneratePlaceholder"
+                            v-model="aiGenerateData.prompt">
+                        </bk-input>
+                    </bk-form-item>
+                </bk-form>
+            </div>
+        </bk-dialog>
     </div>
 </template>
 <script>
@@ -718,7 +754,23 @@
                 templateLabelLoading: false,
                 isEnableTemplateMarket: window.ENABLE_TEMPLATE_MARKET,
                 isBatchUpdateDialogShow: false,
-                pipelineTree: {}
+                pipelineTree: {},
+                // AI 生成相关
+                isAiGenerateDialogShow: false,
+                aiGenerateLoading: false,
+                aiGenerateData: {
+                    prompt: ''
+                },
+                aiGenerateRules: {
+                    prompt: [
+                        {
+                            required: true,
+                            message: i18n.t('必填项'),
+                            trigger: 'blur'
+                        }
+                    ]
+                },
+                aiGeneratePlaceholder: i18n.t('请描述您想要创建的流程，例如：创建一个并行条件流程，执行数据库备份和日志清理，只有数据库所在服务器的log超过其磁盘80%时，才触发日志清理，完成后发送通知')
             }
         },
         computed: {
@@ -730,7 +782,8 @@
             ...mapState('project', {
                 'timeZone': state => state.timezone,
                 'authActions': state => state.authActions,
-                'projectName': state => state.projectName
+                'projectName': state => state.projectName,
+                'bizId': state => state.bizId
             }),
             crtPageSelectedAll () {
                 return this.templateList.length > 0 && this.templateList.every(item => this.selectedTpls.find(tpl => tpl.id === item.id))
@@ -814,7 +867,8 @@
             ...mapMutations('template/', [
                 'setProjectBaseInfo',
                 'setTemplateData',
-                'setPipelineTree'
+                'setPipelineTree',
+                'setAiGenerated'
             ]),
             async initData () {
                 try {
@@ -1111,6 +1165,71 @@
                         name: 'templatePanel',
                         params: { type: 'new', project_id: this.project_id }
                     })
+                }
+            },
+            // AI 生成按钮点击
+            onAiGenerateClick () {
+                if (!this.hasPermission(['flow_create'], this.authActions)) {
+                    const resourceData = {
+                        project: [{
+                            id: this.project_id,
+                            name: this.projectName
+                        }]
+                    }
+                    this.applyForPermission(['flow_create'], this.authActions, resourceData)
+                } else {
+                    this.aiGenerateData.prompt = ''
+                    this.isAiGenerateDialogShow = true
+                }
+            },
+            // AI 生成确认
+            async onAiGenerateConfirm () {
+                try {
+                    await this.$refs.aiGenerateForm.validate()
+                } catch (e) {
+                    return
+                }
+
+                this.aiGenerateLoading = true
+                try {
+                    const prompt = this.aiGenerateData.prompt
+                    const response = await fetch('/apigw/generate_process_with_agent/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            bk_biz_id: this.bizId,
+                            prompt: prompt
+                        })
+                    })
+                    const result = await response.json()
+
+                    if (result.result) {
+                        // 保存 pipeline tree 到 store，并设置 AI 生成标志
+                        this.setAiGenerated(true)
+                        this.setPipelineTree(result.data)
+                        this.isAiGenerateDialogShow = false
+                        // 跳转到画布编辑页面
+                        this.$router.push({
+                            name: 'templatePanel',
+                            params: { type: 'new', project_id: this.project_id },
+                            query: { aiGenerated: 'true' }
+                        })
+                    } else {
+                        this.$bkMessage({
+                            message: result.message || i18n.t('转换失败'),
+                            theme: 'error'
+                        })
+                    }
+                } catch (e) {
+                    console.error(e)
+                    this.$bkMessage({
+                        message: i18n.t('请求失败') + ': ' + e.message,
+                        theme: 'error'
+                    })
+                } finally {
+                    this.aiGenerateLoading = false
                 }
             },
             // 我创建的
@@ -1750,6 +1869,19 @@
 }
 .create-template-btn {
     min-width: 120px;
+}
+.ai-generate-btn {
+    min-width: 100px;
+}
+.ai-generate-dialog {
+    .ai-generate-content {
+        ::v-deep .bk-textarea-wrapper {
+            .bk-form-textarea {
+                font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', 'Consolas', 'source-code-pro', monospace;
+                font-size: 12px;
+            }
+        }
+    }
 }
 .export-tpl-btn,
 .import-tpl-btn {
